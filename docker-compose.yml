@@ -1,0 +1,124 @@
+name: market-sim
+
+x-common-env: &common-env
+  REDIS_URL: redis://redis:6379
+  SIM_SYMBOL: ${SIM_SYMBOL:-SIMX}
+  RUST_LOG: ${RUST_LOG:-info}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sim-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sim}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-simpass}
+      POSTGRES_DB: ${POSTGRES_DB:-marketsim}
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sim} -d ${POSTGRES_DB:-marketsim}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [simnet]
+
+  redis:
+    image: redis:7-alpine
+    container_name: sim-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [simnet]
+
+  engine:
+    build:
+      context: ./engine
+    container_name: sim-engine
+    environment:
+      <<: *common-env
+      IPC_ENDPOINT: ipc:///tmp/ipc/orders.ipc
+      BOOK_DEPTH: ${SIM_BOOK_DEPTH:-15}
+      SNAPSHOT_HZ: ${SIM_SNAPSHOT_HZ:-60}
+      INITIAL_PRICE_TICKS: ${SIM_INITIAL_PRICE_TICKS:-10000}
+      MAX_RESTING: ${SIM_MAX_RESTING:-200000}
+    volumes:
+      - ipc:/tmp/ipc
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [simnet]
+
+  agents:
+    build:
+      context: ./agents
+    container_name: sim-agents
+    environment:
+      <<: *common-env
+      IPC_ENDPOINT: ipc:///tmp/ipc/orders.ipc
+      AGENT_WORKERS: ${AGENT_WORKERS:-4}
+      AGENT_COUNT: ${AGENT_COUNT:-2000}
+      TARGET_TPS: ${TARGET_TPS:-5000}
+      INITIAL_PRICE_TICKS: ${SIM_INITIAL_PRICE_TICKS:-10000}
+    volumes:
+      - ipc:/tmp/ipc
+    depends_on:
+      redis:
+        condition: service_healthy
+      engine:
+        condition: service_started
+    restart: unless-stopped
+    networks: [simnet]
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: sim-gateway
+    environment:
+      <<: *common-env
+      LISTEN_ADDR: ":8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-sim}:${POSTGRES_PASSWORD:-simpass}@postgres:5432/${POSTGRES_DB:-marketsim}?sslmode=disable
+      DEFAULT_AGENT_COUNT: ${AGENT_COUNT:-2000}
+      DEFAULT_TARGET_TPS: ${TARGET_TPS:-5000}
+    ports:
+      - "${GATEWAY_HOST_PORT:-18080}:8080"
+    volumes:
+      - ./db/migrations:/app/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [simnet]
+
+  ui:
+    build:
+      context: ./ui
+    container_name: sim-ui
+    environment:
+      VITE_GATEWAY_HTTP: http://localhost:${GATEWAY_HOST_PORT:-18080}
+      VITE_GATEWAY_WS: ws://localhost:${GATEWAY_HOST_PORT:-18080}
+    ports:
+      - "${UI_HOST_PORT:-13000}:5173"
+    volumes:
+      - ./ui/src:/app/src:ro
+      - ./ui/index.html:/app/index.html:ro
+    depends_on:
+      - gateway
+    networks: [simnet]
+
+volumes:
+  pgdata:
+  ipc:
+
+networks:
+  simnet:
+    driver: bridge

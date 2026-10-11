@@ -1,0 +1,4 @@
+pyzmq==26.2.0
+redis[hiredis]==5.2.1
+msgpack==1.1.0
+uvloop==0.21.0

@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Prices are integer u64 ticks (cents) and quantities integer u64 shares end to end; only the UI divides by 100.
+  The order book is owned by one engine thread; cross-thread communication uses bounded crossbeam channels, never locks on the book.
+  The Go gateway is the only PostgreSQL writer. Redis is a non-persistent message bus.
+  Every published market message carries a monotonic seq.
+  Backpressure may drop orders or stale snapshots but must never drop trades.
+  Everything runs locally via docker compose; no cloud deployment targets.
+  CLAUDE.md holds the decision log and gotchas; read it before designing.
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
